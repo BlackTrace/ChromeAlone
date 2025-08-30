@@ -21,8 +21,8 @@ class MacOSSideloader(BaseSideloader):
         """Generate the macOS bash script sideloader."""
         config = self.get_platform_config()
         
-        # Create the macOS shell script
-        script = f'''#!/bin/bash
+        # Create the macOS shell script using string concatenation to avoid f-string issues
+        script_header = f'''#!/bin/bash
 
 # Generated IWA Sideloader Script for macOS
 # App ID: {self.app_id}
@@ -248,29 +248,83 @@ if [[ ! -f "$LOCAL_STATE_FILE" ]]; then
 }}
 EOF
 else
-    # Update existing Local State file using Python for JSON manipulation
-    python3 -c "
-import json
-import sys
-
-try:
-    with open('$LOCAL_STATE_FILE', 'r') as f:
-        data = json.load(f)
-except:
-    data = {{}}
-
-if 'browser' not in data:
-    data['browser'] = {{}}
-
-data['browser']['enabled_labs_experiments'] = [
-    'enable-isolated-web-app-dev-mode@1',
-    'enable-isolated-web-apps@1'
-]
-data['browser']['first_run_finished'] = True
-
-with open('$LOCAL_STATE_FILE', 'w') as f:
-    json.dump(data, f, indent=2)
-"
+    # Update existing Local State file using pure bash JSON manipulation
+    echo "Updating existing Local State file..."
+    
+    # Create a backup
+    cp "$LOCAL_STATE_FILE" "$LOCAL_STATE_FILE.backup"
+    
+    # Read the existing file
+    local_state_content=$(cat "$LOCAL_STATE_FILE")
+    
+    # Check if the file has valid JSON structure
+    if ! echo "$local_state_content" | grep -q "^{{"; then
+        echo "Invalid JSON format, recreating file..."
+        cat > "$LOCAL_STATE_FILE" << 'EOF'
+{{
+    "browser": {{
+        "default_browser_infobar_declined_count": 1,
+        "default_browser_infobar_last_declined_time": 0,
+        "enabled_labs_experiments": [
+            "enable-isolated-web-app-dev-mode@1",
+            "enable-isolated-web-apps@1"
+        ],
+        "first_run_finished": true
+    }}
+}}
+EOF
+    else
+        # Use sed to update the JSON file
+        temp_file=$(mktemp)
+        
+        # First, ensure we have a browser section
+        if ! echo "$local_state_content" | grep -q '"browser"'; then
+            # Add browser section if it doesn't exist
+            echo "$local_state_content" | sed 's/^{{/{{\"browser\":{{}},/' > "$temp_file"
+            local_state_content=$(cat "$temp_file")
+        fi
+        
+        # Remove existing enabled_labs_experiments if present
+        echo "$local_state_content" | sed '/"enabled_labs_experiments"/,/]/d' > "$temp_file"
+        
+        # Remove existing first_run_finished if present  
+        sed -i '' '/"first_run_finished"/d' "$temp_file"
+        
+        # Add our required settings before the closing browser brace
+        # Find the browser section and add our settings
+        if grep -q '"browser".*{{' "$temp_file"; then
+            # Add the settings after the browser opening brace
+            sed -i '' '/"browser".*{{/a\\
+        "enabled_labs_experiments": [\\
+            "enable-isolated-web-app-dev-mode@1",\\
+            "enable-isolated-web-apps@1"\\
+        ],\\
+        "first_run_finished": true,' "$temp_file"
+        else
+            # Fallback: recreate the file
+            cat > "$temp_file" << 'EOF'
+{{
+    "browser": {{
+        "default_browser_infobar_declined_count": 1,
+        "default_browser_infobar_last_declined_time": 0,
+        "enabled_labs_experiments": [
+            "enable-isolated-web-app-dev-mode@1",
+            "enable-isolated-web-apps@1"
+        ],
+        "first_run_finished": true
+    }}
+}}
+EOF
+        fi
+        
+        # Clean up any duplicate commas and format issues
+        sed -i '' 's/,,/,/g' "$temp_file"
+        sed -i '' 's/,}}/}}/g' "$temp_file"
+        
+        # Copy the result back
+        cp "$temp_file" "$LOCAL_STATE_FILE"
+        rm -f "$temp_file"
+    fi
 fi
 
 echo "Chrome Local State configured for IWA support"
@@ -294,7 +348,6 @@ if [[ -z "$LEVELDB_LOG_FILE" ]]; then
         --disable-ui-deadline-scheduling
         --user-data-dir="$USER_DATA_DIR"
         --profile-directory=Default
-        --app-id={self.app_id}
     )
 
     # Start Chrome briefly in the background
@@ -317,7 +370,10 @@ fi
 
 if [[ -n "$LEVELDB_LOG_FILE" ]]; then
     echo "Writing LevelDB entry to: $LEVELDB_LOG_FILE"
-    write_leveldb_entry "$LEVELDB_LOG_FILE" "web_apps-dt-{self.app_id}" "{self.protobuf_hex}" 99
+'''
+    
+        # Now add the dynamic parts
+        script_middle = f'''    write_leveldb_entry "$LEVELDB_LOG_FILE" "web_apps-dt-{self.app_id}" "{self.protobuf_hex}" 99
     echo "LevelDB entry written successfully"
 else
     echo "Warning: Could not find or create LevelDB log file"
@@ -351,9 +407,37 @@ CHROME_ARGS=(
 )
 
 nohup "$CHROME_PATH" "${{CHROME_ARGS[@]}}" --headless --remote-debugging-port=9222 > /dev/null 2>&1 &
-echo "IWA launched with PID: $!"
+CHROME_PID=$!
+echo "IWA launched with PID: $CHROME_PID"
 sleep 10
+
+# Modify Chrome Apps Info.plist files to run in background
+CHROME_APPS_DIR="$HOME/Applications/Chrome Apps.localized"
+if [[ -d "$CHROME_APPS_DIR" ]]; then
+    echo "Modifying Chrome Apps Info.plist files..."
+    find "$CHROME_APPS_DIR" -name "Info.plist" -type f | while read -r plist_file; do
+        echo "Processing: $plist_file"
+        
+        # Create a backup
+        cp "$plist_file" "$plist_file.backup" 2>/dev/null || true
+        
+        # Check if the plist already has our modifications
+        if ! grep -q "LSUIElement" "$plist_file" 2>/dev/null; then
+            # Use PlistBuddy to add the keys (more reliable than sed for plist files)
+            /usr/libexec/PlistBuddy -c "Add :LSUIElement bool true" "$plist_file" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Add :LSBackgroundOnly bool true" "$plist_file" 2>/dev/null || true
+            echo "  Added background keys to $plist_file"
+        else
+            echo "  Background keys already present in $plist_file"
+        fi
+    done
+    echo "Chrome Apps Info.plist modification completed"
+else
+    echo "Chrome Apps directory not found: $CHROME_APPS_DIR"
+fi
+
 curl -s -X PUT "http://localhost:9222/json/new?{self.iwa_tab_url}"
+wait $CHROME_PID
 STARTEOF
 
 
@@ -394,6 +478,9 @@ launchctl load "$PLIST_FILE" 2>/dev/null || true
 echo "Persistence configured using launchd"
 echo "Sideloader setup completed successfully!"
 '''
+        
+        # Combine all parts
+        script = script_header + script_middle
         
         with open(output_path, 'w') as f:
             f.write(script)
