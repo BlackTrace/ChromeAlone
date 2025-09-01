@@ -12,7 +12,7 @@ Usage:
 
 Examples:
     python build_sideloader.py ./myextension "%LOCALAPPDATA%\Google\com.chrome.alone" --os windows
-    python build_sideloader.py ./myextension "$HOME/Library/Application Support/Google/myextension" --os macos
+    python build_sideloader.py ./myextension "$HOME/Library/Application Support/Google/com.chrome.alone" --os macos
 """
 
 import os
