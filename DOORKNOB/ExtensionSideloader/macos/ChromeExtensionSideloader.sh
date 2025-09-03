@@ -6,7 +6,7 @@
 # Default parameters
 EXTENSION_INSTALL_DIR="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/myextension"
 EXTENSION_DESCRIPTION="Chrome Extension"
-INSTALL_NATIVE_MESSAGING_HOST="false"
+INSTALL_NATIVE_MESSAGING_HOST="true"
 FORCE_RESTART_CHROME="true"
 
 # Parse command line arguments
@@ -82,14 +82,14 @@ get_machine_key() {
 # Extension crypto helpers
 calculate_sha256_hash() {
     local input="$1"
-    echo -n "$input" | /usr/local/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1
+    echo -n "$input" | /usr/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1
 }
 
 calculate_extension_id_from_path() {
     local path="$1"
     
     # Convert path to UTF-8 bytes then calculate SHA256
-    local sha256_hash=$(echo -n "$path" | /usr/local/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1)
+    local sha256_hash=$(echo -n "$path" | /usr/bin/shasum -a 256 | /usr/bin/cut -d' ' -f1)
     
     # Convert first 32 hex chars to extension ID (a-p mapping)
     local extension_id=""

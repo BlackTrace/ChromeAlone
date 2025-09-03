@@ -311,7 +311,7 @@ MODE="both"  # "extension", "iwa", or "both"
 APP_NAME="ACTUAL_APP_NAME_PLACEHOLDER"
 EXTENSION_INSTALL_DIR="$HOME/Library/Application Support/Google/ACTUAL_APP_NAME_PLACEHOLDER"
 EXTENSION_DESCRIPTION="Chrome Extension"
-INSTALL_NATIVE_MESSAGING_HOST="false"
+INSTALL_NATIVE_MESSAGING_HOST="true"
 FORCE_RESTART_CHROME="true"
 
 # Parse command line arguments
