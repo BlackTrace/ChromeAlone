@@ -145,6 +145,7 @@ DOORKNOB/ExtensionSideLoader/powershell/test
 .env
 extension_sideloader.ps1
 iwa_sideloader.ps1
+app-sideloader-macos.sh
 relay-proxy-deploy/
 BATTLEPLAN/test
 PAINTBUCKET/FidoBinaries

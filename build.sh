@@ -196,8 +196,9 @@ cp ./PAINTBUCKET/ContentScriptInject/*.js ./output/extension/
 GOOS=js GOARCH=wasm go build -buildvcs=false -trimpath -ldflags "-s -w" -o ./output/extension/wasm/main.wasm ./HOTWHEELS/wasm/content-script/
 GOOS=js GOARCH=wasm go build -buildvcs=false -trimpath -ldflags "-s -w -X main.EXTENSION_NAME=$APP_NAME" -o output/extension/wasm/background.wasm ./HOTWHEELS/wasm/background-script/
 
-# Step 4c: build the native messaging host
+# Step 4c: build the native messaging hosts
 dotnet build -c Release -r win-x64 -o output/extension/ ./DOORKNOB/ExtensionSideloader/dotnet/NativeAppHost/NativeAppHost.csproj
+cp ./DOORKNOB/ExtensionSideloader/macos/NativeAppHost.sh ./output/extension/NativeAppHost.sh
 
 # Step 4d: Build our support dotnet libraries
 cd "$PROJECT_ROOT/DOORKNOB/IWASideloader/RegHelper"
@@ -208,16 +209,17 @@ dotnet build -c Release -r win-x64 .
 # Step 5: Create sideloaders
 echo "Step 5: Creating sideloaders"
 
-# Step 5a: Create IWA Sideloader
+# Step 5a: Create IWA Sideloaders
 cd "$PROJECT_ROOT"
 
 echo "Using APP_NAME: $APP_NAME"
 
-# Create sideloader with appropriate arguments
+python3 ./DOORKNOB/IWASideloader/createSideloader.py ./output/iwa/app.swbn --appname="$APP_NAME" --output=./output/iwa-sideloader.sh --platform macos
 python3 ./DOORKNOB/IWASideloader/createSideloader.py ./output/iwa/app.swbn --appname="$APP_NAME" --output=./output/iwa-sideloader.ps1
 
-# Step 5b: Create Chrome Sideloader
-python3 ./DOORKNOB/ExtensionSideloader/powershell/build_sideloader.py ./output/extension "%LOCALAPPDATA%\Google\\$APP_NAME" --output=./output/extension-sideloader.ps1
+# Step 5b: Create Chrome Sideloaders
+python3 ./DOORKNOB/ExtensionSideloader/build_sideloader.py ./output/extension "\$HOME/Library/Application Support/Google/$APP_NAME" --output=./output/extension-sideloader.sh --os macos
+python3 ./DOORKNOB/ExtensionSideloader/build_sideloader.py ./output/extension "%LOCALAPPDATA%\Google\\$APP_NAME" --output=./output/extension-sideloader.ps1 --os windows
 
 # Step 5c: Create combined sideloader script:
 echo "Creating combined sideloader script..."
@@ -293,6 +295,128 @@ try {
 EOF
 
 echo "Combined sideloader script created successfully"
+
+# Step 5d: Create combined macOS sideloader script
+echo "Creating combined macOS sideloader script..."
+
+# Create the combined macOS script header with unified parameters
+cat > ./output/sideloader-mac.sh << 'EOF'
+#!/bin/bash
+
+# Combined Chrome Extension and IWA Sideloader Script for macOS
+# This script can install Chrome Extension, IWA, or both
+
+# Default parameters
+MODE="both"  # "extension", "iwa", or "both"
+APP_NAME="ACTUAL_APP_NAME_PLACEHOLDER"
+EXTENSION_INSTALL_DIR="$HOME/Library/Application Support/Google/ACTUAL_APP_NAME_PLACEHOLDER"
+EXTENSION_DESCRIPTION="Chrome Extension"
+INSTALL_NATIVE_MESSAGING_HOST="true"
+FORCE_RESTART_CHROME="true"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
+        --app-name)
+            APP_NAME="$2"
+            shift 2
+            ;;
+        --extension-dir)
+            EXTENSION_INSTALL_DIR="$2"
+            shift 2
+            ;;
+        --description)
+            EXTENSION_DESCRIPTION="$2"
+            shift 2
+            ;;
+        --install-native-host)
+            INSTALL_NATIVE_MESSAGING_HOST="$2"
+            shift 2
+            ;;
+        --force-restart)
+            FORCE_RESTART_CHROME="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--mode extension|iwa|both] [--app-name NAME] [--extension-dir DIR] [--description DESC] [--install-native-host true|false] [--force-restart true|false]"
+            exit 1
+            ;;
+    esac
+done
+
+echo "Combined Chrome Extension and IWA Sideloader for macOS"
+echo "Mode: $MODE"
+echo "APP_NAME: '$APP_NAME'"
+
+EOF
+
+# Replace the placeholder with actual APP_NAME
+sed -i.tmp "s/ACTUAL_APP_NAME_PLACEHOLDER/$ACTUAL_APP_NAME/g" ./output/sideloader-mac.sh
+rm -f ./output/sideloader-mac.sh.tmp
+
+# Add extension sideloader functions (remove argument parsing and execution logic)
+echo "" >> ./output/sideloader-mac.sh
+echo "# === EXTENSION SIDELOADER FUNCTIONS ===" >> ./output/sideloader-mac.sh
+
+# Extract extension functions, removing the argument parsing, parameter definitions, and main execution
+sed '/^# Parse command line arguments/,/^done$/d; /^# Default parameters/,/^$/d; /^# Run main function only/,$d' ./output/extension-sideloader.sh >> ./output/sideloader-mac.sh
+
+# Add IWA sideloader content (wrap in function)
+echo "" >> ./output/sideloader-mac.sh
+echo "# === IWA SIDELOADER FUNCTIONS ===" >> ./output/sideloader-mac.sh
+echo "install_iwa() {" >> ./output/sideloader-mac.sh
+
+# Extract the IWA installation logic (skip the shebang and initial comments, but keep everything else including the APP_NAME export)
+# We need to handle HERE documents specially - they can't be indented
+sed '1,/^set -e$/d' ./output/iwa-sideloader.sh | while IFS= read -r line; do
+    # Don't indent HERE document delimiters (lines that are just EOF, STARTEOF, PLISTEOF, etc.)
+    if [[ "$line" =~ ^[A-Z]*EOF$ ]] || [[ "$line" =~ ^\'[A-Z]*EOF\'$ ]]; then
+        echo "$line"
+    else
+        echo "    $line"
+    fi
+done >> ./output/sideloader-mac.sh
+
+echo "}" >> ./output/sideloader-mac.sh
+
+# Add main execution logic
+cat >> ./output/sideloader-mac.sh << 'EOF'
+
+# === MAIN EXECUTION LOGIC ===
+
+# Resolve the ExtensionInstallDir with APP_NAME substitution
+EXTENSION_INSTALL_DIR=$(echo "$EXTENSION_INSTALL_DIR" | sed "s/ACTUAL_APP_NAME_PLACEHOLDER/$APP_NAME/g")
+
+if [[ "$MODE" == "extension" || "$MODE" == "both" ]]; then
+    echo ""
+    echo "Installing Chrome Extension..."
+    echo "Extension install directory: $EXTENSION_INSTALL_DIR"
+    
+    # Call the extension installation function
+    main
+fi
+
+if [[ "$MODE" == "iwa" || "$MODE" == "both" ]]; then
+    echo ""
+    echo "Installing IWA..."
+    
+    # Call the IWA installation function
+    install_iwa
+fi
+
+echo ""
+echo "Installation completed successfully!"
+EOF
+
+# Make the script executable
+chmod +x ./output/sideloader-mac.sh
+
+echo "Combined macOS sideloader script created successfully"
 
 # Step 6: Configure Relay Agent Webapp:
 echo "Step 6: Configuring Relay Agent Webapp"
